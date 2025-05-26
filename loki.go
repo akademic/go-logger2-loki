@@ -109,7 +109,11 @@ func (l Logger) makePayload(logStr string, addLabels map[string]string) ([]byte,
 		Streams []Stream `json:"streams"`
 	}
 
-	labels := l.config.Labels
+	labels := make(map[string]string)
+	for k, v := range l.config.Labels {
+		labels[k] = v
+	}
+
 	if addLabels != nil {
 		for k, v := range addLabels {
 			labels[k] = v
