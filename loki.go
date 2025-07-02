@@ -93,7 +93,7 @@ func (l Logger) send(logStr string, addLabels map[string]string) error {
 
 	// handle the HTTP response
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("loki response: %d", resp.StatusCode)
+		return fmt.Errorf("loki response: %d\t request was: %s", resp.StatusCode, string(jsonData))
 	}
 
 	return nil
