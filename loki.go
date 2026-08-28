@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
 
 type Logger struct {
 	config Config
+
+	labelsMu sync.RWMutex
+	labels   map[string]string
 }
 
 type logLabeler interface {
@@ -25,10 +29,11 @@ type stringer interface {
 func New(config Config) *Logger {
 	return &Logger{
 		config: config,
+		labels: copyLabels(config.Labels),
 	}
 }
 
-func (l Logger) Print(v ...any) {
+func (l *Logger) Print(v ...any) {
 	logStr, addLabels := l.format(v...)
 
 	err := l.send(logStr, addLabels)
@@ -37,7 +42,7 @@ func (l Logger) Print(v ...any) {
 	}
 }
 
-func (l Logger) format(v ...any) (string, map[string]string) {
+func (l *Logger) format(v ...any) (string, map[string]string) {
 	addLabels := make(map[string]string)
 	var logStr string
 
@@ -68,7 +73,7 @@ func (l Logger) format(v ...any) (string, map[string]string) {
 	return logStr, addLabels
 }
 
-func (l Logger) send(logStr string, addLabels map[string]string) error {
+func (l *Logger) send(logStr string, addLabels map[string]string) error {
 	jsonData, err := l.makePayload(logStr, addLabels)
 	if err != nil {
 		return fmt.Errorf("makePayload error: %v", err)
@@ -99,7 +104,7 @@ func (l Logger) send(logStr string, addLabels map[string]string) error {
 	return nil
 }
 
-func (l Logger) makePayload(logStr string, addLabels map[string]string) ([]byte, error) {
+func (l *Logger) makePayload(logStr string, addLabels map[string]string) ([]byte, error) {
 	type Stream struct {
 		Stream map[string]string `json:"stream"`
 		Values [][]string        `json:"values"`
@@ -109,15 +114,9 @@ func (l Logger) makePayload(logStr string, addLabels map[string]string) ([]byte,
 		Streams []Stream `json:"streams"`
 	}
 
-	labels := make(map[string]string)
-	for k, v := range l.config.Labels {
+	labels := copyLabels(l.currentLabels())
+	for k, v := range addLabels {
 		labels[k] = v
-	}
-
-	if addLabels != nil {
-		for k, v := range addLabels {
-			labels[k] = v
-		}
 	}
 
 	data := Payload{
@@ -139,6 +138,6 @@ func (l Logger) makePayload(logStr string, addLabels map[string]string) ([]byte,
 	return jsonData, err
 }
 
-func (l Logger) _url() string {
+func (l *Logger) _url() string {
 	return l.config.Address + "/loki/api/v1/push"
 }

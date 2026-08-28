@@ -29,7 +29,7 @@ func TestMakePayload(t *testing.T) {
 	config := Config{
 		Labels: map[string]string{"app": "test"},
 	}
-	logger := &Logger{config: config}
+	logger := New(config)
 
 	logStr := "test log message"
 	additionalLabels := map[string]string{"env": "dev"}
