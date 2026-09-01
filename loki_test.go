@@ -34,7 +34,7 @@ func TestMakePayload(t *testing.T) {
 	logStr := "test log message"
 	additionalLabels := map[string]string{"env": "dev"}
 
-	payload, err := logger.makePayload(logStr, additionalLabels)
+	payload, err := logger.makePayload(testEntries(logStr, additionalLabels))
 	if err != nil {
 		t.Fatalf("makePayload failed: %v", err)
 	}

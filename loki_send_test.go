@@ -35,7 +35,7 @@ func TestSendSuccess(t *testing.T) {
 	}
 	logger := New(config)
 
-	err := logger.send("test log message", map[string]string{"env": "dev"})
+	err := logger.send(testEntries("test log message", map[string]string{"env": "dev"}))
 	if err != nil {
 		t.Errorf("Unexpected error during send: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestSendError(t *testing.T) {
 			}
 			logger := New(config)
 
-			err := logger.send("test error log", nil)
+			err := logger.send(testEntries("test error log", nil))
 
 			if err == nil {
 				t.Error("Expected an error, got nil")

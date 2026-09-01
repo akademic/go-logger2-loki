@@ -1,5 +1,10 @@
 package loki
 
+import (
+	"slices"
+	"strings"
+)
+
 // SetLabels replaces the whole label set of the logger.
 func (l *Logger) SetLabels(labels map[string]string) {
 	newLabels := copyLabels(labels)
@@ -22,6 +27,22 @@ func (l *Logger) currentLabels() map[string]string {
 	defer l.labelsMu.RUnlock()
 
 	return l.labels
+}
+
+func labelsKey(labels map[string]string) string {
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+
+	slices.Sort(keys)
+
+	pairs := make([]string, 0, len(keys))
+	for _, k := range keys {
+		pairs = append(pairs, k+"\x00"+labels[k])
+	}
+
+	return strings.Join(pairs, "\x00")
 }
 
 func copyLabels(labels map[string]string) map[string]string {

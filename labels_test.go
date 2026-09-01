@@ -90,7 +90,7 @@ func TestPayloadUsesRuntimeLabels(t *testing.T) {
 
 	logger.SetLabels(map[string]string{"host": "node-1"})
 
-	payload, err := logger.makePayload("test log message", map[string]string{"env": "dev"})
+	payload, err := logger.makePayload(testEntries("test log message", map[string]string{"env": "dev"}))
 	if err != nil {
 		t.Fatalf("makePayload failed: %v", err)
 	}
@@ -100,6 +100,35 @@ func TestPayloadUsesRuntimeLabels(t *testing.T) {
 	expected := map[string]string{"host": "node-1", "env": "dev"}
 	if !reflect.DeepEqual(labels, expected) {
 		t.Errorf("Expected labels %v, got %v", expected, labels)
+	}
+}
+
+// TestIgnoreMessageLabels checks that with IgnoreMessageLabels the stream carries
+// only the labels of the logger, so that a high cardinality value reported by a
+// logged type can not create a stream per log line.
+func TestIgnoreMessageLabels(t *testing.T) {
+	server := newRecordingServer(t)
+
+	logger := New(Config{
+		Address:             server.URL,
+		Labels:              map[string]string{"app": "test"},
+		IgnoreMessageLabels: true,
+	})
+
+	logger.Print(LabeledType{value: "labeled log"})
+
+	payloads := server.received()
+	if len(payloads) != 1 {
+		t.Fatalf("Expected 1 payload, got %d", len(payloads))
+	}
+
+	expected := map[string]string{"app": "test"}
+	if got := payloads[0].Streams[0].Stream; !reflect.DeepEqual(got, expected) {
+		t.Errorf("Expected labels %v, got %v", expected, got)
+	}
+
+	if got := payloads[0].Streams[0].Values[0][1]; got != "labeled log" {
+		t.Errorf("Expected log line %q, got %q", "labeled log", got)
 	}
 }
 
@@ -127,7 +156,7 @@ func TestLabelsConcurrentAccess(t *testing.T) {
 
 		go func() {
 			defer wg.Done()
-			if _, err := logger.makePayload("log", map[string]string{"i": string(rune(i))}); err != nil {
+			if _, err := logger.makePayload(testEntries("log", map[string]string{"i": string(rune(i))})); err != nil {
 				t.Errorf("makePayload failed: %v", err)
 			}
 		}()
