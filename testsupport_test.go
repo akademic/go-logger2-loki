@@ -13,7 +13,7 @@ import (
 
 // testEntries builds the argument of makePayload/send for a single log line.
 func testEntries(line string, labels map[string]string) []entry {
-	return []entry{{timestamp: time.Now(), line: line, labels: labels}}
+	return []entry{{timestamp: time.Now().UnixNano(), line: line, labels: labels}}
 }
 
 // countingServer is a Loki stub that counts requests and new TCP connections.
@@ -59,9 +59,9 @@ type receivedPayload struct {
 type recordingServer struct {
 	*httptest.Server
 
-	block chan struct{}
-
 	mu       sync.Mutex
+	block    chan struct{}
+	release  func()
 	payloads []receivedPayload
 	arrived  chan struct{}
 }
@@ -69,11 +69,14 @@ type recordingServer struct {
 func newRecordingServer(t *testing.T) *recordingServer {
 	t.Helper()
 
+	open := make(chan struct{})
+	close(open)
+
 	rs := &recordingServer{
-		block:   make(chan struct{}),
-		arrived: make(chan struct{}, 100),
+		block:   open,
+		release: func() {},
+		arrived: make(chan struct{}, 1000),
 	}
-	close(rs.block)
 
 	rs.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload receivedPayload
@@ -95,7 +98,12 @@ func newRecordingServer(t *testing.T) *recordingServer {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
-	t.Cleanup(rs.Server.Close)
+	// A held request must be released before Close, which waits for outstanding
+	// handlers: otherwise a failed assertion hangs the whole test binary.
+	t.Cleanup(func() {
+		rs.currentRelease()()
+		rs.Server.Close()
+	})
 
 	return rs
 }
@@ -103,12 +111,14 @@ func newRecordingServer(t *testing.T) *recordingServer {
 // hold makes every request block until the returned function is called.
 func (rs *recordingServer) hold() func() {
 	block := make(chan struct{})
+	release := sync.OnceFunc(func() { close(block) })
 
 	rs.mu.Lock()
 	rs.block = block
+	rs.release = release
 	rs.mu.Unlock()
 
-	return sync.OnceFunc(func() { close(block) })
+	return release
 }
 
 func (rs *recordingServer) currentBlock() chan struct{} {
@@ -116,6 +126,13 @@ func (rs *recordingServer) currentBlock() chan struct{} {
 	defer rs.mu.Unlock()
 
 	return rs.block
+}
+
+func (rs *recordingServer) currentRelease() func() {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
+	return rs.release
 }
 
 // waitRequest waits until a request reaches the handler.

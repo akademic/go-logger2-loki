@@ -1,7 +1,9 @@
 package loki
 
 import (
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -38,6 +40,65 @@ func TestBatchPacksLinesIntoOneRequest(t *testing.T) {
 
 	if got := len(payloads[0].Streams[0].Values); got != 3 {
 		t.Errorf("Expected 3 log lines in the request, got %d", got)
+	}
+}
+
+// TestBatchKeepsTimestampsAscending checks the ordering Loki requires: whatever
+// the interleaving of concurrent log calls, timestamps of the delivered lines grow
+// from request to request. Otherwise Loki answers 400 'entry out of order'.
+func TestBatchKeepsTimestampsAscending(t *testing.T) {
+	server := newRecordingServer(t)
+
+	logger := New(Config{
+		Address:         server.URL,
+		Labels:          map[string]string{"app": "test"},
+		BatchWait:       10 * time.Millisecond,
+		BatchMaxEntries: 10,
+	})
+
+	const goroutines = 50
+	const linesPerGoroutine = 20
+
+	wg := sync.WaitGroup{}
+	wg.Add(goroutines)
+
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+
+			for range linesPerGoroutine {
+				logger.Print("test log message")
+			}
+		}()
+	}
+
+	wg.Wait()
+	logger.Close()
+
+	if got := server.lines(); got != goroutines*linesPerGoroutine {
+		t.Fatalf("Expected %d log lines delivered, got %d", goroutines*linesPerGoroutine, got)
+	}
+
+	previous := int64(0)
+
+	for requestIndex, payload := range server.received() {
+		for _, stream := range payload.Streams {
+			for _, value := range stream.Values {
+				timestamp, err := strconv.ParseInt(value[0], 10, 64)
+				if err != nil {
+					t.Fatalf("Failed to parse timestamp %q: %v", value[0], err)
+				}
+
+				if timestamp <= previous {
+					t.Fatalf(
+						"Timestamp %d in request %d is not after the previous one %d",
+						timestamp, requestIndex, previous,
+					)
+				}
+
+				previous = timestamp
+			}
+		}
 	}
 }
 

@@ -77,6 +77,10 @@ stopping the sender.
 Once `BatchQueueSize` is reached (Loki is down or too slow) new lines are dropped,
 and the number of dropped lines is reported as an error.
 
+Batching also keeps entries ordered. Loki checks that the timestamps of a stream
+never go back and answers `400 entry with timestamp ... ignored, reason: 'entry out
+of order'` otherwise.
+
 ## Delivery errors
 
 By default delivery errors are written to stdout. `ErrorHandler` receives them

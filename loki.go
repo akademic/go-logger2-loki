@@ -2,6 +2,7 @@ package loki
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,7 +40,7 @@ type stringer interface {
 }
 
 type entry struct {
-	timestamp time.Time
+	timestamp int64
 	line      string
 	labels    map[string]string
 }
@@ -63,14 +64,14 @@ func New(config Config) *Logger {
 func (l *Logger) Print(v ...any) {
 	logStr, addLabels := l.format(v...)
 
-	logEntry := entry{
-		timestamp: time.Now(),
-		line:      logStr,
-		labels:    addLabels,
+	if l.batcher != nil && l.batcher.add(logStr, addLabels) {
+		return
 	}
 
-	if l.batcher != nil && l.batcher.add(logEntry) {
-		return
+	logEntry := entry{
+		timestamp: time.Now().UnixNano(),
+		line:      logStr,
+		labels:    addLabels,
 	}
 
 	if err := l.send([]entry{logEntry}); err != nil {
@@ -177,7 +178,7 @@ func (l *Logger) makePayload(entries []entry) ([]byte, error) {
 	}
 
 	slices.SortStableFunc(entries, func(a, b entry) int {
-		return a.timestamp.Compare(b.timestamp)
+		return cmp.Compare(a.timestamp, b.timestamp)
 	})
 
 	baseLabels := l.currentLabels()
@@ -204,7 +205,7 @@ func (l *Logger) makePayload(entries []entry) ([]byte, error) {
 
 		streams[index].Values = append(
 			streams[index].Values,
-			[]string{strconv.FormatInt(logEntry.timestamp.UnixNano(), 10), logEntry.line},
+			[]string{strconv.FormatInt(logEntry.timestamp, 10), logEntry.line},
 		)
 	}
 

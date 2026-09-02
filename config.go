@@ -47,6 +47,11 @@ type Config struct {
 	// request every BatchWait, or earlier once BatchMaxEntries is reached. Zero
 	// means no batching — every log line is a separate synchronous push request
 	//
+	// Batching is also what keeps entries ordered: lines are stamped and buffered
+	// under one lock and pushed one request at a time, so Loki sees the timestamps
+	// of the process in ascending order. Concurrent single line pushes can not
+	// give that guarantee
+	//
 	// With batching on, delivery happens in a background goroutine, so the last
 	// lines of a process are lost unless Close() is called on shutdown.
 	BatchWait time.Duration

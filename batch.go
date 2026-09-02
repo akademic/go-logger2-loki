@@ -15,10 +15,11 @@ type batcher struct {
 	maxEntries int
 	queueSize  int
 
-	mu      sync.Mutex
-	entries []entry
-	dropped int
-	closed  bool
+	mu            sync.Mutex
+	entries       []entry
+	lastTimestamp int64
+	dropped       int
+	closed        bool
 
 	// flushMu serializes pushes, so that the final flush of close() waits for a
 	// flush started elsewhere instead of racing with it.
@@ -46,9 +47,9 @@ func newBatcher(logger *Logger, config Config) *batcher {
 	return b
 }
 
-// add buffers the entry and reports whether the batcher took it over. It returns
-// false after close, so that the caller falls back to a synchronous send
-func (b *batcher) add(logEntry entry) bool {
+// add buffers the log line and reports whether the batcher took it over. It
+// returns false after close, so that the caller falls back to a synchronous send
+func (b *batcher) add(line string, labels map[string]string) bool {
 	b.mu.Lock()
 
 	if b.closed {
@@ -64,7 +65,11 @@ func (b *batcher) add(logEntry entry) bool {
 		return true
 	}
 
-	b.entries = append(b.entries, logEntry)
+	b.entries = append(b.entries, entry{
+		timestamp: b.nextTimestamp(),
+		line:      line,
+		labels:    labels,
+	})
 	full := len(b.entries) >= b.maxEntries
 
 	b.mu.Unlock()
@@ -77,6 +82,19 @@ func (b *batcher) add(logEntry entry) bool {
 	}
 
 	return true
+}
+
+// Must be called with b.mu held.
+func (b *batcher) nextTimestamp() int64 {
+	timestamp := time.Now().UnixNano()
+
+	if timestamp <= b.lastTimestamp {
+		timestamp = b.lastTimestamp + 1
+	}
+
+	b.lastTimestamp = timestamp
+
+	return timestamp
 }
 
 func (b *batcher) run() {
